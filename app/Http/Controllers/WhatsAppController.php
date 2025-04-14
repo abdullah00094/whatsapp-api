@@ -184,26 +184,34 @@ class WhatsAppController extends Controller
         $systemPrompt = [
             'role' => 'system',
             'content' => <<<EOT
-You are مساعد, a smart and friendly AI assistant for JanPro, a B2B cleaning services company.
+    You are مساعد, a smart and friendly AI assistant for JanPro, a B2B cleaning services company.
+    
+    Introduce yourself only once at the beginning of each new conversation. Then, engage in a natural, professional, and approachable tone. Prioritize understanding the customer's business needs and provide clear, concise responses.
+    
+    Instructions:
+    
+    You represent JanPro, which provides professional cleaning services to businesses and organizations.
+    
+    You are responsible for answering customer inquiries related to JanPro’s services.
+    
+    If a user requests contact details for managers, provide the following static contact numbers: • مدير الدعم: 0500000001
+    • مدير المبيعات: 0500000002
+    
+    Proactively suggest services from the following static list when appropriate: • تنظيف المكاتب والشركات
+    • خدمات النظافة اليومية أو الأسبوعية
+    • تنظيف ما بعد البناء
+    • تعقيم الأسطح والمكاتب
+    • تنظيف الأرضيات والسجاد باحترافية
+    When the user asks for a price quotation, price list, or any query related to pricing for a service, you must always do the following:
+    1. Respond with a polite and professional message saying that the price list PDF will be sent.
+    2. Use ONLY this exact tag on a separate line when user asks for price list: [send_presentation_pdf]
 
-Introduce yourself only once at the beginning of each new conversation. Then, engage in a natural, professional, and approachable tone. Prioritize understanding the customer's business needs and provide clear, concise responses.
-
-Instructions:
-- You represent JanPro, which provides professional cleaning services to businesses and organizations.
-- You are responsible for answering customer inquiries related to JanPro’s services.
-- If a user requests contact details for managers, provide the following static contact numbers:
-• مدير الدعم: 0500000001  
-• مدير المبيعات: 0500000002  
-- Proactively suggest services from the following static list when appropriate:
-• تنظيف المكاتب والشركات  
-• خدمات النظافة اليومية أو الأسبوعية  
-• تنظيف ما بعد البناء  
-• تعقيم الأسطح والمكاتب  
-• تنظيف الأرضيات والسجاد باحترافية  
-- Maintain memory and context of the conversation during the interaction.
-- When the user thanks you for your help (e.g., saying "شكرًا" or "شكرًا مساعد"), clear the memory and reset the context.
-- Keep the conversation focused, relevant, and within the current business scope.
-EOT
+    Maintain memory and context of the conversation during the interaction.
+    
+    When the user thanks you for your help (e.g., saying "شكرًا" or "شكرًا مساعد"), clear the memory and reset the context.
+    
+    Keep the conversation focused, relevant, and within the current business scope.
+    EOT
         ];
 
         $messages = array_merge([$systemPrompt], $history, [['role' => 'user', 'content' => $message]]);
@@ -237,8 +245,17 @@ EOT
                     return 'لم أفهم تمامًا، ممكن توضح أكثر؟';
                 }
 
+                // 💾 Save to memory
                 $this->memoryService->saveMessage($sender, $message, $aiReply);
-                return $aiReply;
+
+                // 🧠 Trigger PDF send if requested
+                if (preg_match('/\[send_presentation_pdf\]/', $aiReply)) {
+                    Log::info('📎 Presentation request detected, sending PDF to user', ['number' => $sender]);
+                    $this->sendPresentationPdf($sender);
+                    $aiReply = preg_replace('/\[send_presentation_pdf\]/', '', $aiReply);
+                }                
+
+                return trim($aiReply);
             }
 
             Log::warning('⚠️ OpenRouter API error', [
@@ -256,4 +273,86 @@ EOT
             return 'حدث خطأ أثناء معالجة الطلب. حاول مجددًا.';
         }
     }
+
+    private function sendPresentationPdf(string $number)
+    {
+        $mediaId = $this->uploadPresentationPdf();
+    
+        if (!$mediaId) {
+            Log::error('❌ Failed to upload PDF, cannot send document.');
+            return;
+        }
+    
+        try {
+            $token = env('WHATSAPP_TOKEN');
+            $phoneNumberId = env('WHATSAPP_PHONE_ID');
+            $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/messages";
+    
+            $response = Http::withToken($token)->post($url, [
+                'messaging_product' => 'whatsapp',
+                'to' => $number,
+                'type' => 'document',
+                'document' => [
+                    'id' => $mediaId,
+                    'filename' => 'عرض_خدمات_JanPro.pdf',
+                    'caption' => '📎 تفضل، هذا ملف تعريفي عن شركة JanPro.',
+                ]
+            ]);
+    
+            if ($response->successful()) {
+                Log::info('✅ Presentation PDF sent successfully.', $response->json());
+            } else {
+                Log::warning('⚠️ Failed to send presentation PDF.', [
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ Exception while sending presentation PDF.', [
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+    
+
+    private function uploadPresentationPdf(): ?string
+{
+    try {
+        $pdfPath = storage_path('app/pdf/presentation.pdf');
+
+        if (!file_exists($pdfPath)) {
+            Log::error('❌ Presentation PDF not found.', ['path' => $pdfPath]);
+            return null;
+        }
+
+        $token = env('WHATSAPP_TOKEN');
+        $phoneNumberId = env('WHATSAPP_PHONE_ID');
+        $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/media";
+
+        $response = Http::withToken($token)->attach(
+            'file',
+            file_get_contents($pdfPath),
+            'presentation.pdf'
+        )->post($url, [
+            'messaging_product' => 'whatsapp',
+            'type' => 'document',
+        ]);
+
+        if ($response->successful()) {
+            $mediaId = $response->json()['id'] ?? null;
+            Log::info('✅ PDF uploaded to WhatsApp successfully.', ['media_id' => $mediaId]);
+            return $mediaId;
+        }
+
+        Log::warning('⚠️ Failed to upload presentation PDF.', [
+            'status' => $response->status(),
+            'response' => $response->body()
+        ]);
+    } catch (\Exception $e) {
+        Log::error('❌ Exception while uploading PDF.', ['error' => $e->getMessage()]);
+    }
+
+    return null;
+}
+
 }
