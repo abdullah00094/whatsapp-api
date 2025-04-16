@@ -39,6 +39,10 @@ return [
         'key' => env('OPENROUTER_API_KEY'),
     ],
 
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+    ], 
+
     'whatsapp' => [
     'token' => env('WHATSAPP_TOKEN'),
     'phone_number_id' => env('WHATSAPP_PHONE_ID'),
