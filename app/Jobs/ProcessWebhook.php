@@ -33,81 +33,31 @@ class ProcessWebhook implements ShouldQueue
     /**
      * Execute the job.
      */
-    // public function handle(): void
-    // {
-    //     $whatsappMessage = $this->message['entry'][0]['changes'][0]['value']['messages'][0] ?? null;
-    
-    //     if (! $whatsappMessage) {
-    //         Log::info('No message found in webhook.');
-    //         return;
-    //     }
-    
-    //     $phone = $whatsappMessage['from'];
-    //     $userMessage = $whatsappMessage['text']['body'];
-    
-    //     $aiResponse = app(AiService::class)->callAi($userMessage, $phone);
-    
-    //     Log::info("AI Response: $aiResponse");
-    
-    //     AiChatHistory::create([
-    //         'phone' => $phone,
-    //         'message' => $userMessage,
-    //         'response' => $aiResponse,
-    //     ]);
-    
-    //     // ✅ Send the AI response back to the user via WhatsApp
-    //     $this->sendMessage($phone, $aiResponse);
-    // }
-//     public function handle(): void
-// {
-//     $whatsappMessage = $this->message;
+    public function handle(): void
+    {
+        Log::info('🔄 Processing WhatsApp message', [
+            'phone' => $this->to,
+            'message' => $this->message,
+        ]);
 
-//     if (!$whatsappMessage || !isset($whatsappMessage['from'], $whatsappMessage['text']['body'])) {
-//         Log::info('❌ Invalid or missing WhatsApp message in job.');
-//         return;
-//     }
+        $aiResponse = app(AiService::class)->callAi($this->message, $this->to);
 
-//     $phone = $whatsappMessage['from'];
-//     $userMessage = $whatsappMessage['text']['body'];
+        Log::info("🤖 AI Response: $aiResponse");
 
-//     $aiResponse = app(AiService::class)->callAi($userMessage, $phone);
+        // AiChatHistory::create([
+        //     'sender_number' => $this->to,
+        //     'user_message' => $this->message,
+        //     'ai_response' => $aiResponse,
+        // ]);
 
-//     Log::info("🤖 AI Response: $aiResponse");
-
-//     AiChatHistory::create([
-//         'phone' => $phone,
-//         'message' => $userMessage,
-//         'response' => $aiResponse,
-//     ]);
-
-//     $this->sendMessage($phone, $aiResponse); // ← don't forget to send the reply
-// }
-
-public function handle(): void
-{
-    Log::info('🔄 Processing WhatsApp message', [
-        'phone' => $this->to,
-        'message' => $this->message,
-    ]);
-
-    $aiResponse = app(AiService::class)->callAi($this->message, $this->to);
-
-    Log::info("🤖 AI Response: $aiResponse");
-
-    AiChatHistory::create([
-        'sender_number' => $this->to,
-        'user_message' => $this->message,
-        'ai_response' => $aiResponse,
-    ]);
-
-    $this->sendMessage($this->to, $aiResponse);
-}
+        $this->sendMessage($this->to, $aiResponse);
+    }
 
     private function sendMessage($to, $message)
     {
         try {
-            $token = env('WHATSAPP_TOKEN');
-            $phoneNumberId = env('WHATSAPP_PHONE_ID'); // ✅ match your .env name
+            $token = config('services.whatsapp.token');
+            $phoneNumberId = config('services.whatsapp.phone_number_id'); // ✅ match your .env name
 
             if (!$token || !$phoneNumberId) {
                 Log::error('❌ Missing WhatsApp credentials.');

@@ -19,23 +19,15 @@ class AiService
     public function callAI(string $message, string $sender): string
     {
         $apiKey = config('services.openrouter.key');
-
         if (!$apiKey) {
             Log::error('❌ Missing OpenRouter API key');
             return 'عذرًا، لا أستطيع تنفيذ طلبك الآن.';
         }
-
-        // 🧹 Clear memory if the user says thanks
-        if (preg_match('/شكراً|شكرا|شكرًا مساعد/i', $message)) {
-            $this->memoryService->clearMemory($sender);
-            return 'على الرحب والسعة! إذا احتجت أي خدمة، أنا موجود دائمًا 🧽✨';
-        }
-
+        
         $history = $this->memoryService->getHistory($sender);
-
         $systemPrompt = [
-            'role' => 'system',
-            'content' => <<<EOT
+        'role' => 'system',
+        'content' => <<<EOT
         You are مساعد, a smart and friendly AI assistant for JanPro, a B2B cleaning services company.
 
         Introduce yourself only once at the beginning of each new conversation. Then, engage in a natural, professional, and approachable tone. Prioritize understanding the customer's business needs and provide clear, concise responses.
@@ -69,20 +61,18 @@ class AiService
         • رقم الجوال  
         • وصف واضح للمشكلة  
         • وقت حدوث المشكلة  
-        • ما الذي يتوقعه العميل لحل المشكلة (مثل: استرداد، متابعة، خصم)
-
         2. After collecting all the necessary info, generate a clear and professional email-style message that includes all details.
 
         3. At the end of that message, add the following tag on a **separate line** to indicate that the email is ready to be sent:  
         `[complaint_ready]`
 
         ⚠️ Important: Do **not** send or mention actual email addresses to the user. The message will be sent internally using this tag.
+        When the user thanks you for your help (e.g., saying "شكرًا" or "شكرًا مساعد" or any related word in any language), use ONLY this exact tag on a separate line:
+        [end_of_conversation]
 
-        When the user thanks you for your help (e.g., saying "شكرًا" or "شكرًا مساعد"), clear the memory and reset the context.
 
         Keep the conversation focused, relevant, and within the current business scope.
-
- EOT
+        EOT
         ];
 
         $messages = array_merge([$systemPrompt], $history, [['role' => 'user', 'content' => $message]]);
@@ -116,8 +106,12 @@ class AiService
                     return 'لم أفهم تمامًا، ممكن توضح أكثر؟';
                 }
 
+                if (str_contains($aiReply, '[end_of_conversation]')) {
+                    $this->memoryService->clearMemory($sender);
+                }
+
                 // 💾 Save to memory
-                $this->memoryService->saveMessage($sender, $message, $aiReply);
+                // $this->memoryService->saveMessage($sender, $message, $aiReply);
 
                 // 🧠 Trigger PDF send if requested
                 if (preg_match('/\[send_presentation_pdf\]/', $aiReply)) {
@@ -142,32 +136,32 @@ class AiService
                 'status' => $response->status(),
                 'response' => $response->body()
             ]);
+            return 'حدث خطأ أثناء معالجة الطلب. حاول مجددًا.';
 
-            return 'عذرًا، النظام مشغول حاليًا. حاول بعد قليل.';
         } catch (\Exception $e) {
             Log::error('❌ Exception calling OpenRouter', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-
-            return 'حدث خطأ أثناء معالجة الطلب. حاول مجددًا.';
+            return 'عذرًا، النظام مشغول حاليًا. حاول بعد قليل.';
         }
     }
+
 
     private function sendPresentationPdf(string $number)
     {
         $mediaId = $this->uploadPresentationPdf();
-    
+
         if (!$mediaId) {
             Log::error('❌ Failed to upload PDF, cannot send document.');
             return;
         }
-    
+
         try {
-            $token = env('WHATSAPP_TOKEN');
-            $phoneNumberId = env('WHATSAPP_PHONE_ID');
+            $token = config('services.whatsapp.token');
+            $phoneNumberId = config('services.whatsapp.phone_number_id');
             $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/messages";
-    
+
             $response = Http::withToken($token)->post($url, [
                 'messaging_product' => 'whatsapp',
                 'to' => $number,
@@ -178,7 +172,7 @@ class AiService
                     'caption' => '📎 تفضل، هذا ملف تعريفي عن شركة JanPro.',
                 ]
             ]);
-    
+
             if ($response->successful()) {
                 Log::info('✅ Presentation PDF sent successfully.', $response->json());
             } else {
@@ -198,16 +192,16 @@ class AiService
     {
         try {
             $pdfPath = storage_path('app/pdf/presentation.pdf');
-    
+
             if (!file_exists($pdfPath)) {
                 Log::error('❌ Presentation PDF not found.', ['path' => $pdfPath]);
                 return null;
             }
-    
-            $token = env('WHATSAPP_TOKEN');
-            $phoneNumberId = env('WHATSAPP_PHONE_ID');
+
+            $token = config('services.whatsapp.token');
+            $phoneNumberId = config('services.whatsapp.phone_number_id');
             $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/media";
-    
+
             $response = Http::withToken($token)->attach(
                 'file',
                 file_get_contents($pdfPath),
@@ -216,13 +210,13 @@ class AiService
                 'messaging_product' => 'whatsapp',
                 'type' => 'document',
             ]);
-    
+
             if ($response->successful()) {
                 $mediaId = $response->json()['id'] ?? null;
                 Log::info('✅ PDF uploaded to WhatsApp successfully.', ['media_id' => $mediaId]);
                 return $mediaId;
             }
-    
+
             Log::warning('⚠️ Failed to upload presentation PDF.', [
                 'status' => $response->status(),
                 'response' => $response->body()
@@ -230,7 +224,7 @@ class AiService
         } catch (\Exception $e) {
             Log::error('❌ Exception while uploading PDF.', ['error' => $e->getMessage()]);
         }
-    
+
         return null;
     }
 }

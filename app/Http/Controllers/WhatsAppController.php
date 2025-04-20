@@ -10,9 +10,6 @@ use Illuminate\Support\Facades\Http;
 
 class WhatsAppController extends Controller
 {
-
-
-
     /**
      * Verifies the webhook for WhatsApp.
      */
@@ -51,6 +48,7 @@ class WhatsAppController extends Controller
             'field' => $request->input('entry.0.changes.0.field'),
             'full_payload' => $request->all() // Add this line to log full payload
         ]);
+
     
         try {
             $data = $request->all();
@@ -89,7 +87,6 @@ class WhatsAppController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-    
             return response()->json([
                 'status' => 'error',
                 'message' => 'An unexpected error occurred'
@@ -97,15 +94,6 @@ class WhatsAppController extends Controller
         }
     }
     
-
-    /**
-     * Send a reply back to the WhatsApp sender (placeholder).
-     */
-
-
-    /**
-     * Calls the AI API and handles memory.
-     */
    
 
 
