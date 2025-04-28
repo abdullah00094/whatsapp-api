@@ -14,5 +14,6 @@ class AiChatHistory extends Model
         'sender_number',
         'user_message',
         'ai_response',
+        'platform',
     ];
 }
