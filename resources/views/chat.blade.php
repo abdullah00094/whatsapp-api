@@ -95,7 +95,7 @@
         }
 
         .messages .message.left .text_wrapper {
-            background-color: #ffe6cb;
+            background-color: #a3d063;
             margin-left: 20px;
         }
 
