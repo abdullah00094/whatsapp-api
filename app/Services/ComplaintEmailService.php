@@ -15,7 +15,7 @@ class ComplaintEmailService
 
         try {
             Mail::raw($aiGeneratedEmailText, function ($mail) use ($userPhone) {
-                $mail->to('amrfoks+1kbw3egiwrnv4mluk22o@boards.trello.com') // static email for now
+                $mail->to('abdullah.morsi94@gmail.com') // static email for now
                      ->subject('🚨 New Complaint from ' . $userPhone);
             });
 
@@ -27,4 +27,3 @@ class ComplaintEmailService
         }
     }
 }
-

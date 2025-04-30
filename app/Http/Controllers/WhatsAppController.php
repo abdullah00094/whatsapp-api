@@ -98,16 +98,6 @@ class WhatsAppController extends Controller
     }
     
 
-    /**
-     * Send a reply back to the WhatsApp sender (placeholder).
-     */
-
-
-    /**
-     * Calls the AI API and handles memory.
-     */
-   
-
 
     
 
