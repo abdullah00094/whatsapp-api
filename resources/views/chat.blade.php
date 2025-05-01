@@ -234,9 +234,8 @@
         .message_template {
             display: none;
         }
-        .h-12{
 
-        }
+        .h-12 {}
     </style>
 </head>
 
@@ -244,10 +243,8 @@
     <!-- Header remains unchanged -->
     <header class="bg-white shadow p-4 flex items-center justify-between">
         <div class="flex items-center gap-4"> <!-- Increased gap -->
-            <img src="{{ asset('img/logo.png') }}" 
-                 alt="ACO Scientific Logo" 
-                 class="h-12 w-15 object-contain" 
-                 onerror="this.style.display='none'">
+            <img src="{{ asset('img/logo.png') }}" alt="ACO Scientific Logo" class="h-12 w-15 object-contain"
+                onerror="this.style.display='none'">
             <h1 class="text-xl font-bold">JanPro Agent chat</h1>
         </div>
     </header>
@@ -280,7 +277,8 @@
         <li class="message">
             <div class="avatar"></div>
             <div class="text_wrapper">
-                <div class="text"></div>
+                <div id="message" class="text">
+                </div>
             </div>
         </li>
     </div>
@@ -352,7 +350,22 @@
                 messageInput.keyup(e => e.which === 13 && sendMessage(messageInput.val().trim()));
             });
         })();
+
+        function renderArabicMessage(message) {
+            const englishRegex = /[a-zA-Z0-9@_.\-]+/g;
+
+            // Wrap English words in <bdi> to isolate direction
+            const safeContent = message.replace(englishRegex, (match) => `<bdi>${match}</bdi>`);
+
+            const finalHtml = `<div dir="rtl" style="text-align: right;">${safeContent}</div>`;
+
+            const messageEl = document.querySelector('.text');
+            if (messageEl) {
+                messageEl.innerHTML = finalHtml;
+            }
+        }
     </script>
+
 </body>
 
 </html>
