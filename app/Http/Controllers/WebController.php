@@ -29,6 +29,50 @@ class WebController extends Controller
         return view('chat');
     }
 
+    // public function send(Request $request)
+    // {
+    //     $request->validate([
+    //         'message' => 'required|string',
+    //     ]);
+
+    //     $userId = session('web_user_id');
+    //     $userMessage = $request->input('message');
+
+    //     // Generate AI response
+    //     $aiResponse = $this->aiService->callAi($userMessage, $userId);
+
+    //     // 📎 Handle sending presentation PDF
+    //     if (preg_match('/\[send_presentation_pdf\]/', $aiResponse)) {
+    //         Log::info('📎 Presentation request detected, sending PDF to user', ['number' => $userId]);
+
+    //         // You will need to create this method later
+    //         $this->sendPresentationPdf($userId);
+
+    //         // Clean up the tag from response
+    //         $aiResponse = preg_replace('/\[send_presentation_pdf\]/', '', $aiResponse);
+    //     }
+
+    //     // 📧 Handle complaint email sending
+    //     if (str_contains($aiResponse, '[complaint_ready]')) {
+    //         Log::info('[AI Agent] Complaint response ready for email.');
+
+    //         $finalComplaintMessage = $aiResponse;
+
+    //         app(ComplaintEmailService::class)->sendComplaintEmail($finalComplaintMessage, $userId);
+    //     }
+
+    //     // Store chat history
+    //     AiChatHistory::create([
+    //         'sender_number' => $userId,
+    //         'user_message' => $userMessage,
+    //         'ai_response' => $aiResponse,
+    //     ]);
+
+    //     return response()->json([
+    //         'response' => trim($aiResponse),
+    //     ]);
+    // }
+
     public function send(Request $request)
     {
         $request->validate([
@@ -38,40 +82,35 @@ class WebController extends Controller
         $userId = session('web_user_id');
         $userMessage = $request->input('message');
 
-        // Generate AI response
-        $aiResponse = $this->aiService->callAi($userMessage, $userId);
+        // 🔁 Get structured response from AI service
+        $aiResponse = $this->aiService->callAi($userMessage, $userId, 'web');
 
-        // 📎 Handle sending presentation PDF
-        if (preg_match('/\[send_presentation_pdf\]/', $aiResponse)) {
-            Log::info('📎 Presentation request detected, sending PDF to user', ['number' => $userId]);
+        // Prepare the response payload
+        $responsePayload = [
+            'response' => trim($aiResponse['response']),
+        ];
 
-            // You will need to create this method later
-            $this->sendPresentationPdf($userId);
-
-            // Clean up the tag from response
-            $aiResponse = preg_replace('/\[send_presentation_pdf\]/', '', $aiResponse);
+        // 📎 If file URL is returned, add it to payload
+        if (!empty($aiResponse['file_url'])) {
+            $responsePayload['file_url'] = $aiResponse['file_url'];
         }
 
-        // 📧 Handle complaint email sending
-        if (str_contains($aiResponse, '[complaint_ready]')) {
-            Log::info('[AI Agent] Complaint response ready for email.');
-
-            $finalComplaintMessage = $aiResponse;
-
-            app(ComplaintEmailService::class)->sendComplaintEmail($finalComplaintMessage, $userId);
+        // 📧 If complaint tag is present, send complaint email
+        if (str_contains($aiResponse['response'], '[complaint_ready]')) {
+            Log::info('[AI] Complaint response triggered email.', ['user_id' => $userId]);
+            app(ComplaintEmailService::class)->sendComplaintEmail($aiResponse['response'], $userId);
         }
 
-        // Store chat history
+        // 💾 Save to chat history
         AiChatHistory::create([
             'sender_number' => $userId,
             'user_message' => $userMessage,
-            'ai_response' => $aiResponse,
+            'ai_response' => $aiResponse['response'],
         ]);
 
-        return response()->json([
-            'response' => trim($aiResponse),
-        ]);
+        return response()->json($responsePayload);
     }
+
 
 
     private function sendPresentationPdf(string $userId)
@@ -80,30 +119,30 @@ class WebController extends Controller
             // For web users, return a file download link
             $webLink = asset('pdfs/عرض_خدمات_JanPro.pdf'); // Or use Storage::url() if in storage/app/public
             Log::info('📎 Web user detected. Returning file link instead.', ['link' => $webLink]);
-    
+
             // Optionally you can send a system message or flag to client
             AiChatHistory::create([
                 'sender_number' => $userId,
                 'user_message' => '[system] Request for PDF',
                 'ai_response' => "📎 يمكنك تحميل عرض الأسعار من هنا: {$webLink}"
             ]);
-    
+
             return;
         }
-    
+
         // WhatsApp logic as before
         $mediaId = $this->uploadPresentationPdf();
-    
+
         if (!$mediaId) {
             Log::error('❌ Failed to upload PDF, cannot send document.');
             return;
         }
-    
+
         try {
             $token = env('WHATSAPP_TOKEN');
             $phoneNumberId = env('WHATSAPP_PHONE_ID');
             $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/messages";
-    
+
             $response = Http::withToken($token)->post($url, [
                 'messaging_product' => 'whatsapp',
                 'to' => $userId,
@@ -114,7 +153,7 @@ class WebController extends Controller
                     'caption' => '📎 تفضل، هذا ملف تعريفي عن شركة JanPro.',
                 ]
             ]);
-    
+
             if ($response->successful()) {
                 Log::info('✅ Presentation PDF sent successfully.', $response->json());
             } else {
@@ -129,7 +168,7 @@ class WebController extends Controller
             ]);
         }
     }
-    
+
 
     private function uploadPresentationPdf(): ?string
     {

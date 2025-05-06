@@ -289,82 +289,96 @@
 
     <!-- Original script with animation adjustments -->
     <script>
-        (function() {
-            const Message = function(arg) {
+        (function () {
+            const Message = function (arg) {
                 this.text = arg.text;
                 this.message_side = arg.message_side;
-
-                this.draw = function() {
+    
+                this.draw = function () {
                     const $message = $($('.message_template').clone().html());
-                    $message.addClass(this.message_side).find('.text').html(this.text);
+                    $message.addClass(this.message_side);
+    
+                    const $textEl = $message.find('.text');
+    
+                    // 👉 Split message and raw HTML (e.g. download link)
+                    const [cleanMessage, fileLinkHtml] = this.text.split('<!--file_link-->');
+    
+                    renderArabicMessage(cleanMessage.trim(), $textEl);
+    
+                    // 👉 Append raw file link HTML after styled message
+                    if (fileLinkHtml) {
+                        $textEl.append(fileLinkHtml);
+                    }
+    
                     $('.messages').append($message);
                     setTimeout(() => $message.addClass('appeared'), 0);
                 };
             };
-
-            $(function() {
+    
+            $(function () {
                 const messageInput = $('.message_input');
                 const sendButton = $('.send_message');
-
-                // Unified send function
-                const sendMessage = function(text) {
+    
+                const sendMessage = function (text) {
                     if (text.trim() === '') return;
-
+    
                     messageInput.val('');
-                    const message_side = 'right'; // Always user messages on right
-
-                    // Draw user message
+                    const message_side = 'right';
+    
+                    // Draw user's message
                     new Message({
                         text: text,
                         message_side: message_side
                     }).draw();
-
+    
                     // Send to backend
                     fetch('{{ route('web.send') }}', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')
-                                    .content
-                            },
-                            body: JSON.stringify({
-                                message: text
-                            })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            // Draw AI response
-                            new Message({
-                                text: data.response,
-                                message_side: 'left'
-                            }).draw();
-                        });
-
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                        },
+                        body: JSON.stringify({ message: text })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        // 📎 Append download link if present
+                        if (data.file_url) {
+                            data.response += `<!--file_link--><a href="/download/presentation" target="_blank" ...>📎 تحميل الملف التعريفي</a>`;
+                        }
+    
+                        // Draw AI response
+                        new Message({
+                            text: data.response,
+                            message_side: 'left'
+                        }).draw();
+                    });
+    
+                    // Scroll to bottom
                     $('.messages').animate({
                         scrollTop: $('.messages').prop('scrollHeight')
                     }, 300);
                 };
-
-                // Event handlers
+    
                 sendButton.click(() => sendMessage(messageInput.val().trim()));
                 messageInput.keyup(e => e.which === 13 && sendMessage(messageInput.val().trim()));
             });
         })();
-
-        function renderArabicMessage(message) {
+    
+        /**
+         * Enhances bidirectional Arabic/English message rendering
+         */
+        function renderArabicMessage(message, $targetElement) {
             const englishRegex = /[a-zA-Z0-9@_.\-]+/g;
-
-            // Wrap English words in <bdi> to isolate direction
             const safeContent = message.replace(englishRegex, (match) => `<bdi>${match}</bdi>`);
-
             const finalHtml = `<div dir="rtl" style="text-align: right;">${safeContent}</div>`;
-
-            const messageEl = document.querySelector('.text');
-            if (messageEl) {
-                messageEl.innerHTML = finalHtml;
-            }
+            $targetElement.html(finalHtml);
         }
     </script>
+    
+    
+    
+    
 
 </body>
 

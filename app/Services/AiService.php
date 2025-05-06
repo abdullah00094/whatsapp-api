@@ -16,21 +16,21 @@ class AiService
         $this->memoryService = $memoryService;
     }
 
-    public function callAI(string $message, string $sender): string
+    public function callAI(string $message, string $sender, string $channel = 'web'): array
     {
         $apiKey = config('services.openrouter.key');
-
+    
         if (!$apiKey) {
             Log::error('❌ Missing OpenRouter API key');
-            return 'عذرًا، لا أستطيع تنفيذ طلبك الآن.';
+            return ['response' => 'عذرًا، لا أستطيع تنفيذ طلبك الآن.'];
         }
-
-        // 🧹 Clear memory if the user says thanks
+    
+        // Clear memory if user thanks the bot
         if (preg_match('/شكراً|شكرا|شكرًا مساعد/i', $message)) {
             $this->memoryService->clearMemory($sender);
-            return 'على الرحب والسعة! إذا احتجت أي خدمة، أنا موجود دائمًا 🧽✨';
+            return ['response' => 'على الرحب والسعة! إذا احتجت أي خدمة، أنا موجود دائمًا 🧽✨'];
         }
-
+    
         $history = $this->memoryService->getHistory($sender);
 
         $systemPrompt = [
@@ -93,67 +93,72 @@ class AiService
             'temperature' => 0.8,
             'max_tokens' => 300,
         ];
-
+    
         $url = 'https://openrouter.ai/api/v1/chat/completions';
-
+    
         try {
             Log::info('📤 Sending request to OpenRouter', ['url' => $url, 'payload' => $payload]);
-
+    
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
-                'HTTP-Referer' => 'https://yourdomain.com', // ✅ Update this to your real domain
+                'HTTP-Referer' => 'https://yourdomain.com',
             ])->post($url, $payload);
-
+    
             Log::debug('📄 Raw response from OpenRouter: ' . $response->body());
-
+    
             if ($response->successful()) {
                 $data = $response->json();
                 $aiReply = $data['choices'][0]['message']['content'] ?? null;
-
+    
                 if (!$aiReply) {
                     Log::warning('⚠️ AI response missing', ['response' => $data]);
-                    return 'لم أفهم تمامًا، ممكن توضح أكثر؟';
+                    return ['response' => 'لم أفهم تمامًا، ممكن توضح أكثر؟'];
                 }
-
-                // 💾 Save to memory
+    
                 $this->memoryService->saveMessage($sender, $message, $aiReply);
-
-                // 🧠 Trigger PDF send if requested
+    
+                $payload = ['response' => trim($aiReply)];
+    
+                // 📎 Handle PDF tag
                 if (preg_match('/\[send_presentation_pdf\]/', $aiReply)) {
-                    Log::info('📎 Presentation request detected, sending PDF to user', ['number' => $sender]);
-                    $this->sendPresentationPdf($sender);
-                    $aiReply = preg_replace('/\[send_presentation_pdf\]/', '', $aiReply);
+                    Log::info('📎 Presentation request detected', ['channel' => $channel]);
+    
+                    $payload['response'] = trim(preg_replace('/\[send_presentation_pdf\]/', '', $aiReply));
+    
+                    if ($channel === 'whatsapp') {
+                        $this->sendPresentationPdf($sender);
+                    }
+    
+                    if ($channel === 'web') {
+                        $payload['file_url'] = asset('storage/app/pdf/presentation.pdf');
+                    }
                 }
-
+    
+                // 📧 Complaint handling
                 if (str_contains($aiReply, '[complaint_ready]')) {
                     Log::info('[AI Agent] Complaint response ready for email.');
-
-                    $finalComplaintMessage = $aiReply; // Or extract just the message part if it contains tags
-
-                    app(\App\Services\ComplaintEmailService::class)
-                        ->sendComplaintEmail($finalComplaintMessage, $sender);
+                    app(\App\Services\ComplaintEmailService::class)->sendComplaintEmail($aiReply, $sender);
                 }
-
-                return trim($aiReply);
+    
+                return $payload;
             }
-
+    
             Log::warning('⚠️ OpenRouter API error', [
                 'status' => $response->status(),
                 'response' => $response->body()
             ]);
-
-            return 'عذرًا، النظام مشغول حاليًا. حاول بعد قليل.';
+    
+            return ['response' => 'عذرًا، النظام مشغول حاليًا. حاول بعد قليل.'];
         } catch (\Exception $e) {
             Log::error('❌ Exception calling OpenRouter', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-
-            return 'حدث خطأ أثناء معالجة الطلب. حاول مجددًا.';
+    
+            return ['response' => 'حدث خطأ أثناء معالجة الطلب. حاول مجددًا.'];
         }
     }
-
     private function sendPresentationPdf(string $number)
     {
         $mediaId = $this->uploadPresentationPdf();
